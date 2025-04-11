@@ -1,3 +1,7 @@
+
+chinese_bert_wwm
+sherpa_onnx/streaming-small-zh-en
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
