@@ -7,15 +7,9 @@ import queue
 import threading
 import json
 import hashlib
-try:
-    import sounddevice as sd
-    import websockets
-except ImportError:
-    print()
-    print("  pip install sounddevice")
-    print("  pip install websockets")
-    print()
-    sys.exit(-1)
+import sounddevice as sd
+import websockets
+from pypinyin import pinyin, lazy_pinyin, Style
 
 class tokeN:
     def __init__(self,token:str,stime:float,sentid:int):
@@ -35,16 +29,84 @@ class t:
         self.asr_thread:threading.Thread
 
         # 所有token列表
+        self.lastWordTime:float = 0
         self.tokenList:list[tokeN] = []
+
+        # hard wordBt 词对匹配模式
+        self.hard_step = True
 
         # 开启torch bert模型匹配
         self.bert_step = False
         self.modelPath = ""
 
+        ## 语句脚本
+        self.json_path = "hotword.json"
+        # 初始化本地库
+        self.local_JsonLoad()
+        
+    def local_JsonLoad(self):
+        if not os.path.exists(self.json_path):
+            initial_data = {"sents": []}
+            with open(self.json_path, 'w', encoding='utf-8') as f:
+                json.dump(initial_data, f, ensure_ascii=False, indent=4)
+            print(f">> {self.json_path} 库已创建，并写入初始结构。")
+        else:
+            # 文件存在，检查是否有 "sents" 键
+            with open(self.json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 如果 "sents" 键不存在，添加它
+            if "sents" not in data:
+                data["sents"] = []
+                with open(self.json_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+                print(f">> {self.json_path} 已添加并初始化为空列表。")
+            else:
+                print(f"文件 {self.json_path} 已存在，且包含 'sents' 键。")
+        
+        sentinfo:list = []
+        with open(self.json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            for _s in data["sents"]:
+                sinfo = self.loadSent(_s)
+                sentinfo.append(sinfo)
+        data["sinfo"] = sentinfo
+        with open(self.json_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
+    @staticmethod
+    def loadSent(sent: str) -> dict:
+        slen = len(sent)
+        rdict = {
+            "sent": sent,
+            "tokens": [],
+            "ps": [],
+            "tone": [],
+            "len": slen
+        }
+        
+        for w in sent:
+            rdict['tokens'].append(w)
+
+        # 获取每个字的拼音及其音调
+        pinyin_list = pinyin(sent, style=Style.TONE3)
+        rdict['ps'] = [item[0][0:-1] for item in pinyin_list]
+        
+        # 获取音调列表并处理无效音调
+        rdict['tone'] = []
+        for item in pinyin_list:
+            pinyin_with_tone = item[0]
+            if pinyin_with_tone[-1].isdigit():  # 如果拼音最后一个字符是数字
+                rdict['tone'].append(int(pinyin_with_tone[-1]))
+            else:
+                rdict['tone'].append(0)
+        
+        return rdict
+
+          
     def Bert_ModelLoad( self, model_path ):
         self.modelPath = model_path
         self.bert_step = True
-        pass
 
     def SetASR( self, asr:asr_mode):
         self.asrm = asr
@@ -100,37 +162,6 @@ class t:
             else:
                 return last_message
             
-        
-    async def inputstream_generator(self, channels=1):
-        """Generator that yields blocks of input data as NumPy arrays.
-
-        See https://python-sounddevice.readthedocs.io/en/0.4.6/examples.html#creating-an-asyncio-generator-for-audio-blocks
-        """
-        q_in = asyncio.Queue()
-        loop = asyncio.get_event_loop()
-
-        def callback(indata, frame_count, time_info, status):
-            loop.call_soon_threadsafe(q_in.put_nowait, (indata.copy(), status))
-
-        devices = sd.query_devices()
-        print(devices)
-        default_input_device_idx = sd.default.device[0]
-        print(f'Use default device: {devices[default_input_device_idx]["name"]}')
-        print()
-        print("Started! Please speak")
-
-        stream = sd.InputStream(
-            callback=callback,
-            channels=channels,
-            dtype="float32",
-            samplerate=16000,
-            blocksize=int(0.05 * 16000),  # 0.05 seconds
-        )
-        with stream:
-            while True:
-                indata, status = await q_in.get()
-                yield indata, status
-
     async def shp_run(
         self,
         server_addr: str,
@@ -165,10 +196,9 @@ class t:
             loop.call_soon_threadsafe(q_in.put_nowait, (indata.copy(), status))
 
         devices = sd.query_devices()
-        print(devices)
+        # print(devices)
         default_input_device_idx = sd.default.device[0]
         print(f'Use default device: {devices[default_input_device_idx]["name"]}')
-        print()
         print("Started! Please speak")
 
         stream = sd.InputStream(
