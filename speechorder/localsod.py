@@ -41,6 +41,8 @@ class t:
 
         ## 语句脚本
         self.json_path = "hotword.json"
+        self.order_ps:list = []
+        self.order_tone:list = []
         # 初始化本地库
         self.local_JsonLoad()
         
@@ -67,12 +69,17 @@ class t:
         sentinfo:list = []
         with open(self.json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
+            self.order_ps = []
             for _s in data["sents"]:
                 sinfo = self.loadSent(_s)
                 sentinfo.append(sinfo)
+                self.order_ps.append( sinfo['ps'] )
+                self.order_tone.append( sinfo['tone'] )
         data["sinfo"] = sentinfo
         with open(self.json_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
+        print( self.order_ps )
+        print( self.order_tone )
 
     @staticmethod
     def loadSent(sent: str) -> dict:
@@ -137,11 +144,12 @@ class t:
             tk = msg['tokens'][_i]
             tstamp = msg['timestamps'][_i]
             _ys = msg['ys_probs'][_i]
+            
             _i += 1
             
         tok = tokeN( token="", stime=0.0, sentid=0 )
-        # 字符列表上限为100
-        while self.tokenList.count() >= 100: self.tokenList.remove(0)
+        # 字符列表上限为 30
+        while self.tokenList.count() >= 30: self.tokenList.remove(0)
         self.tokenList.append( tok )
 
     async def receive_results(self, socket: websockets.WebSocketServerProtocol):
